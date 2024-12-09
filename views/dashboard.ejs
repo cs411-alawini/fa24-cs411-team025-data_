@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f9;
+            color: #333;
+        }
+        .navbar {
+            background-color: #007BFF;
+            color: white;
+            padding: 10px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .navbar h1 {
+            margin: 0;
+            font-size: 1.5rem;
+        }
+        .navbar .nav-links a {
+            color: white;
+            text-decoration: none;
+            margin: 0 10px;
+            font-size: 1rem;
+        }
+        .navbar .nav-links a:hover {
+            text-decoration: underline;
+        }
+        .content {
+            max-width: 900px;
+            margin: 20px auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+        .section {
+            margin-bottom: 30px;
+        }
+        h2 {
+            margin-top: 0;
+            color: #007BFF;
+        }
+        .info p {
+            margin: 8px 0;
+            font-size: 1rem;
+        }
+
+        .search-container {
+            position: relative;
+            width: 100%; /* Changed from max-width: 600px */
+        }
+
+        .search-box {
+            position: relative;
+            margin-bottom: 20px;
+            width: 100%;
+        }
+
+        .search-box input {
+            width: calc(100% - 22px); /* Adjusted to account for padding and border */
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 1rem;
+            margin-bottom: 5px;
+        }
+
+        .form-group {
+            width: 100%;
+        }
+
+        .form-group button {
+            padding: 10px 20px;
+            background-color: #007BFF;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1rem;
+            margin-top: 10px;
+        }
+
+        #suggestions {
+            width: calc(100% - 2px); /* Adjusted to match input width */
+            position: absolute;
+            top: 100%;
+            left: 0;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 0 0 4px 4px;
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 1000;
+            display: none;
+        }
+
+        #suggestions div {
+            padding: 10px;
+            cursor: pointer;
+            border-bottom: 1px solid #eee;
+        }
+
+        #suggestions div:hover {
+            background-color: #f5f5f5;
+        }
+
+        .form-group button {
+            padding: 10px 20px;
+            background-color: #007BFF;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1rem;
+        }
+
+        .form-group button:hover {
+            background-color: #0056b3;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+        table th, table td {
+            border: 1px solid #ddd;
+            padding: 10px;
+            text-align: left;
+        }
+        table th {
+            background-color: #007BFF;
+            color: white;
+        }
+        table tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        table tr:hover {
+            background-color: #f1f1f1;
+        }
+
+        /* Rank category styles */
+        .Gold {
+            background-color: #FFD700;
+            color: #333;
+        }
+        .Silver {
+            background-color: #C0C0C0;
+            color: #333;
+        }
+        .Bronze {
+            background-color: #CD7F32;
+            color: #333;
+        }
+        .Unranked {
+            background-color: #ffffff;
+            color: #333;
+        }
+
+        table td.rank-category, table th.rank-category {
+            text-align: center;
+            font-weight: bold;
+        }
+
+        .friend-suggestions {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        .friend-card {
+            background-color: #f9f9f9;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        .friend-card:hover {
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.15);
+        }
+        .add-friend-btn {
+            background-color: #007BFF;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 10px;
+            transition: background-color 0.2s;
+        }
+        .add-friend-btn:hover {
+            background-color: #0056b3;
+        }
+        .logout {
+            display: inline-block;
+            padding: 10px 15px;
+            background-color: #FF4C4C;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            font-size: 1rem;
+        }
+        .logout:hover {
+            background-color: #cc3c3c;
+        }
+    </style>
+    <script>
+        async function searchUsers(term) {
+            const suggestionsBox = document.getElementById('suggestions');
+            
+            if (term.trim() === '') {
+                suggestionsBox.style.display = 'none';
+                suggestionsBox.innerHTML = '';
+                return;
+            }
+
+            try {
+                const response = await fetch(`/search-suggestions?term=${encodeURIComponent(term)}`);
+                const suggestions = await response.json();
+
+                suggestionsBox.innerHTML = '';
+                
+                if (suggestions.length > 0) {
+                    suggestions.forEach((suggestion) => {
+                        const div = document.createElement('div');
+                        div.textContent = suggestion;
+                        div.onclick = () => {
+                            document.getElementById('friendUsername').value = suggestion;
+                            suggestionsBox.style.display = 'none';
+                        };
+                        suggestionsBox.appendChild(div);
+                    });
+                    suggestionsBox.style.display = 'block';
+                } else {
+                    suggestionsBox.style.display = 'none';
+                }
+            } catch (error) {
+                console.error('Error fetching suggestions:', error);
+                suggestionsBox.style.display = 'none';
+            }
+        }
+
+        // Hide suggestions when clicking outside
+        document.addEventListener('click', function(e) {
+            const suggestionsBox = document.getElementById('suggestions');
+            const searchBox = document.getElementById('friendUsername');
+            
+            if (e.target !== searchBox) {
+                suggestionsBox.style.display = 'none';
+            }
+        });
+    </script>
+</head>
+<body>
+    <!-- Navigation Bar -->
+    <div class="navbar">
+        <h1>Dashboard</h1>
+        <div class="nav-links">
+            <a href="/monuments">Monuments</a>
+            <a href="/dishes">Dishes</a>
+            <a href="/learn">Learn</a>
+            <a href="/quiz">Take Language Quiz</a>
+            <a href="/cloze-quiz">Take Language Quiz 2</a>
+            <a href="/translation-quiz">Take Language Quiz 3</a>
+            <a href="/login" class="logout">Logout</a>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="content">
+        <!-- User Information -->
+        <div class="section info">
+            <h2>Welcome, <%= user.first_name %> <%= user.last_name %>!</h2>
+            <p><strong>Username:</strong> <%= user.username %></p>
+            <p><strong>Email:</strong> <%= user.email %></p>
+            <p><strong>Points:</strong> <%= user.points %></p>
+            <p><strong>Language:</strong> <%= user.language %></p>
+        </div>
+
+        <!-- Search and Add Friend -->
+        <div class="section">
+            <h2>Search for Friends</h2>
+            <div class="search-container">
+                <form action="/add-friend" method="POST" class="form-group">
+                    <div class="search-box">
+                        <input 
+                            type="text" 
+                            id="friendUsername" 
+                            name="friendUsername" 
+                            placeholder="Enter username" 
+                            onkeyup="searchUsers(this.value)" 
+                            autocomplete="off"
+                            required
+                        />
+                        <div id="suggestions"></div>
+                    </div>
+                    <button type="submit" class="add-friend-btn">Add Friend</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Leaderboard -->
+        <div class="section">
+            <h2>Leaderboard</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Rank</th>
+                        <th>Username</th>
+                        <th>Points</th>
+                        <th>First Name</th>
+                        <th>Last Name</th>
+                        <th>Rank Category</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <% leaderboard.forEach((friend, index) => { %>
+                        <tr class="<%= friend.rank_category %>">
+                            <td><%= index + 1 %></td>
+                            <td><%= friend.username %></td>
+                            <td><%= friend.points %></td>
+                            <td><%= friend.first_name %></td>
+                            <td><%= friend.last_name %></td>
+                            <td class="rank-category"><%= friend.rank_category %></td>
+                            <td>
+                                <form action="/remove-friend/<%= friend.username %>" method="POST" style="display:inline;">
+                                    <button type="submit" style="background: none; border: none; color: red; cursor: pointer;">✖</button>
+                                </form>
+                            </td>
+                        </tr>
+                    <% }); %>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Friend Suggestions -->
+        <div class="section">
+            <h2>Friend Suggestions</h2>
+            <div class="friend-suggestions">
+                <% if (Array.isArray(suggestions) && suggestions.length > 0) { %>
+                    <% suggestions.forEach((suggestion) => { %>
+                        <div class="friend-card">
+                            <p><strong><%= suggestion.suggested_friend %></strong></p>
+                            <p>Mutual Friends: <%= suggestion.mutual_friend_count %></p>
+                            <form action="/add-suggested-friend" method="POST">
+                                <input type="hidden" name="suggestedUsername" value="<%= suggestion.suggested_friend %>">
+                                <button type="submit" class="add-friend-btn">Add Friend</button>
+                            </form>
+                        </div>
+                    <% }); %>
+                <% } else { %>
+                    <p>No friend suggestions available at this time.</p>
+                <% } %>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
