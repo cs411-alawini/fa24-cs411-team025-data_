@@ -543,9 +543,10 @@ app.post('/quiz/submit', (req, res) => {
     const username = req.session.user.username;
 
     const query = `
-        SELECT id, english_phrase, translation, LENGTH(translation) - LENGTH(REPLACE(translation, ' ', '')) + 1 AS word_count
-        FROM combined_phrases
-        WHERE id IN (?)
+        SELECT cp.id, cp.english_phrase, cp.translation, 
+               LENGTH(cp.translation) - LENGTH(REPLACE(cp.translation, ' ', '')) + 1 AS word_count
+        FROM combined_phrases cp
+        WHERE cp.id IN (?);
     `;
 
     db.query(query, [Object.keys(answers)], (err, correctAnswers) => {
@@ -554,41 +555,83 @@ app.post('/quiz/submit', (req, res) => {
             return res.status(500).send('Error processing quiz');
         }
 
-        const results = correctAnswers.map((phrase) => ({
-            ...phrase,
-            userAnswer: answers[phrase.id],
-            isCorrect: answers[phrase.id] === phrase.translation,
-        }));
+        // Process each question and maintain all necessary data
+        const resultsPromises = correctAnswers.map(phrase => {
+            return new Promise((resolve, reject) => {
+                // Query to get additional options for each question
+                const optionsQuery = `
+                    SELECT translation 
+                    FROM combined_phrases 
+                    WHERE language = (
+                        SELECT language 
+                        FROM combined_phrases 
+                        WHERE id = ?
+                    )
+                    AND id != ? 
+                    ORDER BY RAND() 
+                    LIMIT 3;
+                `;
 
-        const pointsEarned = results
-            .filter((result) => result.isCorrect)
-            .reduce((sum, result) => sum + result.word_count, 0);
+                db.query(optionsQuery, [phrase.id, phrase.id], (optErr, options) => {
+                    if (optErr) {
+                        return reject(optErr);
+                    }
 
-        const updatePointsQuery = `
-            UPDATE users
-            SET points = points + ?
-            WHERE username = ?;
-        `;
+                    // Combine correct answer with random options
+                    const allOptions = [
+                        phrase.translation,
+                        ...options.map(opt => opt.translation)
+                    ].sort(() => Math.random() - 0.5);
 
-        db.query(updatePointsQuery, [pointsEarned, username], (updateErr) => {
-            if (updateErr) {
-                console.error('Error updating user points:', updateErr);
-                console.error('Error updating user points:', updateErr);
-                return res.status(500).send('Error updating points');
-            }
-
-            req.session.user.points += pointsEarned; // Update session points
-            req.session.quizResults = results; // Store results in session for "Next" page
-            req.session.pointsEarned = pointsEarned; // Store points earned
-
-            res.render('quiz-results', {
-                user: req.session.user,
-                results,
-                pointsEarned,
+                    resolve({
+                        id: phrase.id,
+                        english_phrase: phrase.english_phrase,
+                        translation: phrase.translation,
+                        userAnswer: answers[phrase.id],
+                        isCorrect: answers[phrase.id] === phrase.translation,
+                        options: allOptions,
+                        word_count: phrase.word_count
+                    });
+                });
             });
         });
+
+        Promise.all(resultsPromises)
+            .then(results => {
+                const pointsEarned = results
+                    .filter(result => result.isCorrect)
+                    .reduce((sum, result) => sum + result.word_count, 0);
+
+                const updatePointsQuery = `
+                    UPDATE users
+                    SET points = points + ?
+                    WHERE username = ?;
+                `;
+
+                db.query(updatePointsQuery, [pointsEarned, username], (updateErr) => {
+                    if (updateErr) {
+                        console.error('Error updating user points:', updateErr);
+                        return res.status(500).send('Error updating points');
+                    }
+
+                    req.session.user.points += pointsEarned;
+                    req.session.quizResults = results;
+                    req.session.pointsEarned = pointsEarned;
+
+                    res.render('quiz-results', {
+                        user: req.session.user,
+                        results: results,
+                        pointsEarned: pointsEarned
+                    });
+                });
+            })
+            .catch(error => {
+                console.error('Error processing quiz results:', error);
+                res.status(500).send('Error processing quiz results');
+            });
     });
 });
+
 
 app.get('/quiz/score', (req, res) => {
     if (!req.session.user || !req.session.quizResults) {
@@ -753,6 +796,120 @@ app.post('/cloze-quiz/submit', (req, res) => {
         });
     });
 });
+
+app.get('/translation-quiz', (req, res) => {
+    if (!req.session.user) {
+        return res.redirect('/login');
+    }
+
+    const userLanguage = req.session.user.language;
+
+    // Fetch 10 random questions
+    const query = `
+        SELECT id, english_phrase, translation, pronunciation 
+        FROM combined_phrases 
+        WHERE language = ? 
+        ORDER BY RAND() 
+        LIMIT 10;
+    `;
+
+    db.query(query, [userLanguage], (err, questions) => {
+        if (err) {
+            console.error('Error fetching translation quiz questions:', err);
+            return res.status(500).send('Error loading quiz');
+        }
+
+        const questionPromises = questions.map((question) => {
+            return new Promise((resolve) => {
+                // Generate options with slight modifications to the correct pronunciation
+                const modifiedOptions = Array.from({ length: 3 }).map(() => {
+                    const pronunciation = question.pronunciation;
+                    const splitPronunciation = pronunciation.split('');
+                    const randomIndex = Math.floor(Math.random() * splitPronunciation.length);
+                    splitPronunciation[randomIndex] = String.fromCharCode(
+                        splitPronunciation[randomIndex].charCodeAt(0) + 1
+                    );
+                    return splitPronunciation.join('');
+                });
+
+                resolve({
+                    ...question,
+                    options: [question.pronunciation, ...modifiedOptions].sort(() => Math.random() - 0.5), // Randomize options
+                });
+            });
+        });
+
+        Promise.all(questionPromises)
+            .then((questionsWithOptions) => {
+                res.render('translation-quiz', {
+                    user: req.session.user,
+                    questions: questionsWithOptions,
+                });
+            })
+            .catch((err) => {
+                console.error('Error processing translation quiz:', err);
+                res.status(500).send('Error loading quiz');
+            });
+    });
+});
+
+app.post('/translation-quiz/submit', (req, res) => {
+    if (!req.session.user) {
+        return res.redirect('/login');
+    }
+
+    const { answers } = req.body; // Object containing user answers
+    const username = req.session.user.username;
+
+    const query = `
+        SELECT id, english_phrase, translation, pronunciation, 
+               LENGTH(pronunciation) - LENGTH(REPLACE(pronunciation, ' ', '')) + 1 AS word_count
+        FROM combined_phrases
+        WHERE id IN (?)
+    `;
+
+    db.query(query, [Object.keys(answers)], (err, correctAnswers) => {
+        if (err) {
+            console.error('Error validating answers:', err);
+            return res.status(500).send('Error processing quiz');
+        }
+
+        const results = correctAnswers.map((phrase) => ({
+            ...phrase,
+            userAnswer: answers[phrase.id],
+            isCorrect: answers[phrase.id] === phrase.pronunciation,
+        }));
+
+        const pointsEarned = results
+            .filter((result) => result.isCorrect)
+            .reduce((sum, result) => sum + result.word_count, 0);
+
+        // Update the user's points in the Users table
+        const updatePointsQuery = `
+            UPDATE users
+            SET points = points + ?
+            WHERE username = ?;
+        `;
+
+        db.query(updatePointsQuery, [pointsEarned, username], (updateErr) => {
+            if (updateErr) {
+                console.error('Error updating user points:', updateErr);
+                return res.status(500).send('Error updating points');
+            }
+
+            req.session.user.points += pointsEarned; // Update session points
+            req.session.quizResults = results; // Store results in session for "Next" page
+            req.session.pointsEarned = pointsEarned; // Store points earned
+
+            res.render('translation-quiz-results', {
+                user: req.session.user,
+                results,
+                pointsEarned,
+            });
+        });
+    });
+});
+
 
 // Start the server
 const PORT = 80;
